@@ -68,30 +68,47 @@ function exportEvidence(){
  txt('Mission '+(idx+1)+' of '+levels.length+'  |  '+(completed.has(idx)?'Completed':'Not yet completed')+'  |  Mr. Maldonado · 2026',100,H-33,18,true);
  return c;
 }
-async function screenshotEvidence(){
- const button=$('screenshot'),status=$('evidenceStatus');
- if(playing){status.textContent='Wait until the robot stops before capturing evidence.';return}
- button.disabled=true;
+function evidenceBlob(canvas){
+ return new Promise((resolve,reject)=>{
+  canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('Could not create PNG.')),'image/png');
+ });
+}
+async function downloadEvidence(){
+ const status=$('evidenceStatus');
+ if(playing){status.textContent='Wait until the robot finishes before saving.';return}
+ const button=$('downloadEvidence');button.disabled=true;
  try{
-  const canvas=exportEvidence();
-  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
-  if(!blob)throw new Error('Image generation failed.');
-  if(window.isSecureContext&&navigator.clipboard&&window.ClipboardItem){
-   try{
-    await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
-    status.textContent='Screenshot copied! Open Google Slides and press Ctrl+V (or Cmd+V).';
-    return;
-   }catch(e){/* Clipboard permissions unavailable; provide PNG fallback. */}
-  }
-  const href=URL.createObjectURL(blob),a=document.createElement('a');
-  a.href=href;a.download='Block-Lab-Mission-'+(idx+1)+'-Evidence.png';
-  document.body.append(a);a.click();a.remove();
-  setTimeout(()=>URL.revokeObjectURL(href),30000);
-  status.textContent='Evidence PNG downloaded. Insert it into Google Slides using Insert → Image → Upload from computer.';
- }catch(e){status.textContent='Screenshot unavailable: '+(e.message||'Please try again.')}
+  const blob=await evidenceBlob(exportEvidence());
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement('a');
+  link.href=url;link.download='Block-Lab-Mission-'+(idx+1)+'-Evidence.png';
+  document.body.appendChild(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+  status.textContent='PNG saved. In Google Slides: Insert → Image → Upload from computer.';
+ }catch(err){status.textContent='Could not save image: '+(err.message||'Try again.')}
  finally{button.disabled=false}
 }
-$('screenshot').onclick=screenshotEvidence;
+async function screenshotEvidence(){
+ const status=$('evidenceStatus'),button=$('screenshot');
+ if(playing){status.textContent='Wait until the robot finishes before copying.';return}
+ if(!window.isSecureContext||!navigator.clipboard?.write||typeof ClipboardItem==='undefined'){
+  status.textContent='Image copy is blocked in this browser or address. Use Download PNG instead, then insert it into Google Slides.';
+  return;
+ }
+ button.disabled=true;status.textContent='Copying screenshot…';
+ try{
+  // IMPORTANT: clipboard.write must start during the user click, before any await.
+  // Chromium accepts a promised PNG blob in ClipboardItem.
+  const canvas=exportEvidence();
+  const imagePromise=evidenceBlob(canvas);
+  await navigator.clipboard.write([new ClipboardItem({'image/png':imagePromise})]);
+  status.textContent='Screenshot copied! Open Google Slides, click the slide, and press Ctrl+V (Mac: Cmd+V).';
+ }catch(err){
+  status.textContent='Copy was blocked ('+(err.name||'clipboard permission')+'). Click Download PNG and insert the image in Google Slides.';
+ }finally{button.disabled=false}
+}
+$('screenshot').addEventListener('click',screenshotEvidence);
+$('downloadEvidence').addEventListener('click',downloadEvidence);
 
 levels.forEach((l,i)=>{let op=document.createElement('option');op.value=i;op.textContent=l.title;$('level').append(op)});$('level').onchange=e=>load(Number(e.target.value));$('prev').onclick=()=>load(idx-1);$('next').onclick=()=>load(idx+1);document.querySelectorAll('.block').forEach(b=>{b.onclick=()=>add(b.dataset.dir);b.addEventListener('dragstart',e=>e.dataTransfer.setData('text/plain',b.dataset.dir))});$('workspace').addEventListener('dragover',e=>e.preventDefault());$('workspace').addEventListener('drop',e=>{e.preventDefault();let d=e.dataTransfer.getData('text/plain');if(delta[d])add(d)});$('run').onclick=run;$('step').onclick=doStep;$('reset').onclick=resetRobot;$('undo').onclick=()=>{code.pop();resetRobot()};$('clear').onclick=()=>{code=[];resetRobot()};$('hint').onclick=()=>feedback(levels[idx].hint);load(0);
 })();
