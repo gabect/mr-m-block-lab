@@ -19,5 +19,79 @@ function load(n){idx=(n+levels.length)%levels.length;code=[...(levels[idx].start
 function advance(){if(stopped||cursor>=code.length)return false;let dir=code[cursor],d=delta[dir],next=[robot[0]+d[0],robot[1]+d[1]],walls=new Set(levels[idx].walls.map(w=>key(...w)));cursor++;if(next[0]<0||next[1]<0||next[0]>=N||next[1]>=N){stopped=true;feedback(`Bug at step ${cursor}: ${dir} leaves the grid. Fix your code and try again.`);showCode();return false}if(walls.has(key(...next))){stopped=true;feedback(`Bug at step ${cursor}: ${dir} hits an obstacle. Change your route.`);showCode();return false}robot=next;trail.push(robot);showGrid();showCode();if(equal(robot,levels[idx].goal)){stopped=true;completed.add(idx);try{localStorage.setItem('blocklab-progress',JSON.stringify([...completed]))}catch{}$('counter').textContent=`${completed.size}/${levels.length} missions solved`;feedback(`Success! You reached ${String.fromCharCode(65+robot[1])}${robot[0]+1} in ${cursor} step${cursor===1?'':'s'}. Great sequencing!`);return false}if(cursor>=code.length){stopped=true;feedback(`The robot stopped at ${String.fromCharCode(65+robot[1])}${robot[0]+1}, not the goal. Debug and try again.`);return false}return true}
 function doStep(){if(playing)return;if(cursor===0&&stopped)resetRobot();if(!code.length){feedback('Add at least one command first.');return}advance()}
 async function run(){if(playing)return;if(!code.length){feedback('Add commands to build your program first.');return}resetRobot();playing=true;$('run').disabled=true;$('step').disabled=true;for(let i=0;i<code.length;i++){if(!playing)break;await new Promise(resolve=>setTimeout(resolve,440));let more=advance();if(!more)break}playing=false;$('run').disabled=false;$('step').disabled=false}
+
+function exportEvidence(){
+ const lvl=levels[idx], c=document.createElement('canvas');
+ const rows=Math.max(1,Math.ceil(code.length/6)); c.width=1400;c.height=Math.max(860,735+rows*92);
+ const g=c.getContext('2d'),W=c.width,H=c.height;
+ g.fillStyle='#faf8ef';g.fillRect(0,0,W,H);
+ g.strokeStyle='#d4e4ee';g.lineWidth=1;
+ for(let y=36;y<H;y+=35){g.beginPath();g.moveTo(26,y);g.lineTo(W-26,y);g.stroke()}
+ g.strokeStyle='#d26d6d';g.lineWidth=2;g.beginPath();g.moveTo(62,10);g.lineTo(62,H-10);g.stroke();
+ const txt=(s,x,y,size=23,bold=false,color='#17191b')=>{g.fillStyle=color;g.font=(bold?'bold ':'')+size+'px Arial, sans-serif';g.fillText(s,x,y)};
+ txt('MR. M TECHNOLOGY  /  BLOCK LAB',95,66,34,true);
+ txt(lvl.title,95,112,27,true);
+ txt('CODE + RESULT  •  STUDENT EVIDENCE',95,148,19,true);
+ const x0=100,y0=215,t=78;const walls=new Set(lvl.walls.map(p=>key(...p)));
+ txt('ROBOT GRID',x0,y0-22,23,true);
+ for(let col=0;col<N;col++)txt(String.fromCharCode(65+col),x0+col*t+31,y0+10,18,true);
+ for(let r=0;r<N;r++){
+  txt(String(r+1),x0-26,y0+44+r*t,17,true);
+  for(let col=0;col<N;col++){
+   const x=x0+col*t,y=y0+22+r*t,k=key(r,col);
+   g.fillStyle=walls.has(k)?'#474d50':trail.some(p=>key(...p)===k)?'#d5e8f4':'#fffdf8';
+   if(equal(lvl.goal,[r,col]))g.fillStyle='#dff2d5';
+   g.fillRect(x,y,t-3,t-3);g.strokeStyle='#272727';g.lineWidth=2;g.strokeRect(x,y,t-3,t-3);
+   if(equal(lvl.start,[r,col]))txt('S',x+6,y+18,15,true,'#386893');
+   if(equal(lvl.goal,[r,col]))txt('G',x+t-23,y+18,15,true,'#38613a');
+   if(equal(robot,[r,col])){txt('ROBOT',x+9,y+47,16,true)}
+  }
+ }
+ const codeX=555;txt('MY CODE',codeX,y0-22,23,true);
+ if(!code.length)txt('(No blocks)',codeX,y0+42,19,false);
+ for(let i=0;i<code.length;i++){
+  const col=i%6,row=Math.floor(i/6),x=codeX+col*130,y=y0+22+row*92;
+  g.fillStyle=i<cursor?'#f6ec65':'#c8e3f0';g.fillRect(x,y,121,76);
+  g.strokeStyle='#202020';g.lineWidth=2;g.strokeRect(x,y,121,76);
+  txt('STEP '+(i+1),x+10,y+24,15,true);
+  txt(arrows[code[i]]+' '+code[i],x+10,y+55,17,true);
+ }
+ const base=Math.max(665,y0+22+rows*92+24);
+ txt('RESULT',100,base,25,true);
+ const result=$('feedback').textContent;
+ g.font='21px Arial, sans-serif';
+ const words=result.split(/\s+/);let line='',lineY=base+36;
+ for(const word of words){const test=line?line+' '+word:word;
+  if(g.measureText(test).width>1170&&line){txt(line,100,lineY,21);lineY+=29;line=word}else line=test;
+ }
+ if(line)txt(line,100,lineY,21);
+ txt('Mission '+(idx+1)+' of '+levels.length+'  |  '+(completed.has(idx)?'Completed':'Not yet completed')+'  |  Mr. Maldonado · 2026',100,H-33,18,true);
+ return c;
+}
+async function screenshotEvidence(){
+ const button=$('screenshot'),status=$('evidenceStatus');
+ if(playing){status.textContent='Wait until the robot stops before capturing evidence.';return}
+ button.disabled=true;
+ try{
+  const canvas=exportEvidence();
+  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+  if(!blob)throw new Error('Image generation failed.');
+  if(window.isSecureContext&&navigator.clipboard&&window.ClipboardItem){
+   try{
+    await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
+    status.textContent='Screenshot copied! Open Google Slides and press Ctrl+V (or Cmd+V).';
+    return;
+   }catch(e){/* Clipboard permissions unavailable; provide PNG fallback. */}
+  }
+  const href=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=href;a.download='Block-Lab-Mission-'+(idx+1)+'-Evidence.png';
+  document.body.append(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(href),30000);
+  status.textContent='Evidence PNG downloaded. Insert it into Google Slides using Insert → Image → Upload from computer.';
+ }catch(e){status.textContent='Screenshot unavailable: '+(e.message||'Please try again.')}
+ finally{button.disabled=false}
+}
+$('screenshot').onclick=screenshotEvidence;
+
 levels.forEach((l,i)=>{let op=document.createElement('option');op.value=i;op.textContent=l.title;$('level').append(op)});$('level').onchange=e=>load(Number(e.target.value));$('prev').onclick=()=>load(idx-1);$('next').onclick=()=>load(idx+1);document.querySelectorAll('.block').forEach(b=>{b.onclick=()=>add(b.dataset.dir);b.addEventListener('dragstart',e=>e.dataTransfer.setData('text/plain',b.dataset.dir))});$('workspace').addEventListener('dragover',e=>e.preventDefault());$('workspace').addEventListener('drop',e=>{e.preventDefault();let d=e.dataTransfer.getData('text/plain');if(delta[d])add(d)});$('run').onclick=run;$('step').onclick=doStep;$('reset').onclick=resetRobot;$('undo').onclick=()=>{code.pop();resetRobot()};$('clear').onclick=()=>{code=[];resetRobot()};$('hint').onclick=()=>feedback(levels[idx].hint);load(0);
 })();
